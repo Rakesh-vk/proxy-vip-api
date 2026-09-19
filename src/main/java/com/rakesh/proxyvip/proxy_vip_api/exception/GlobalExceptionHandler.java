@@ -25,7 +25,7 @@ public class GlobalExceptionHandler {
                 .body(errorResponseDTO);
     }
     @ExceptionHandler(VipNotAllocated.class)
-    public ResponseEntity<ErrorResponse> VipNotAllocatedHandler(
+    public ResponseEntity<ErrorResponse> vipNotAllocatedHandler(
             VipNotAllocated ex){
         log.warn("VIP allocation lookup failed: {}", ex.getMessage());
         ErrorResponse errorResponseDTO =

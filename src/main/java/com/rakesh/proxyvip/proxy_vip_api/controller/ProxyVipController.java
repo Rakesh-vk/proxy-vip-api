@@ -54,7 +54,7 @@ public class ProxyVipController {
         return  ResponseEntity.ok(allocations);
     }
     @DeleteMapping("/removeAllVips")
-    public ResponseEntity<Void> DeleteAllMapping(){
+    public ResponseEntity<Void> deleteAllMapping(){
         proxyVipService.removeRecords();
         return new ResponseEntity<>(HttpStatus.OK);
     }
