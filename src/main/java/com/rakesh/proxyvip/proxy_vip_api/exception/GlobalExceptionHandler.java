@@ -21,4 +21,18 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.CONFLICT)
                 .body(errorResponseDTO);
     }
+    @ExceptionHandler(VipNotAllocated.class)
+    public ResponseEntity<ErrorResponse> VipNotAllocatedHandler(
+            VipNotAllocated ex){
+        ErrorResponse errorResponseDTO =
+                new ErrorResponse(
+                        HttpStatus.NOT_FOUND.value(),
+                        ex.getMessage()
+                );
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(errorResponseDTO);
+    }
+
 }

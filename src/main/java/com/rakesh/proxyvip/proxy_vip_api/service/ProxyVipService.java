@@ -1,10 +1,9 @@
 package com.rakesh.proxyvip.proxy_vip_api.service;
 
+import com.rakesh.proxyvip.proxy_vip_api.exception.VipNotAllocated;
 import com.rakesh.proxyvip.proxy_vip_api.exception.VipPoolExhaustedException;
 import org.springframework.stereotype.Service;
-
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -24,7 +23,6 @@ public class ProxyVipService {
 
     public String allocate(String sourceIp, String destinationIp) {
         PerSourceState state = sourceStates.computeIfAbsent(sourceIp, key -> new PerSourceState());
-        System.out.println(state);
         synchronized (state) {
             return state.getVIP(destinationIp)
                     .orElseGet(() -> {
@@ -53,14 +51,22 @@ public class ProxyVipService {
 
     public boolean addVip(String newVip) {
         vipPool.add(newVip);   // immediately visible to all future allocate() calls
-        System.out.println("available VIPs are : "+ vipPool);
         return true;
     }
 
     public List<String> getAll() {
-        for(String vip:vipPool){
-            System.out.println(vip);
-        }
         return vipPool;
     }
+
+        public String getBySourceAndDestination(String sourceIp, String destinationIp) {
+            PerSourceState state = sourceStates.get(sourceIp);
+            if (state == null) {
+                throw new VipNotAllocated("VIP is not allocated ");
+            }
+            synchronized (state) {
+                return state.getVIP(destinationIp)
+                        .orElseThrow(() -> new VipNotAllocated("VIP is not allocated "));
+            }
+        }
+
 }

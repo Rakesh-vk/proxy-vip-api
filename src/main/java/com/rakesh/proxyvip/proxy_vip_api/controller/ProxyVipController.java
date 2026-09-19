@@ -20,9 +20,13 @@ import java.util.List;
 public class ProxyVipController {
     private final ProxyVipService proxyVipService;
 
-    @GetMapping
+    @GetMapping("/getAllVips")
     public ResponseEntity<List<String>> getAllVips(){
         return new ResponseEntity<>(proxyVipService.getAll(),HttpStatus.OK);
+    }
+    @GetMapping("/getVip/{sourceIP}/{destinationIP}")
+    public ResponseEntity<String> getAllVips(@PathVariable String sourceIP,@PathVariable String destinationIP){
+        return new ResponseEntity<>(proxyVipService.getBySourceAndDestination(sourceIP,destinationIP),HttpStatus.OK);
     }
 
 
