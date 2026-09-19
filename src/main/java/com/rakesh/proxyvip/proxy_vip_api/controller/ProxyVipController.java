@@ -22,7 +22,6 @@ public class ProxyVipController {
 
     @GetMapping
     public ResponseEntity<List<String>> getAllVips(){
-        System.out.println("reading all vips");
         return new ResponseEntity<>(proxyVipService.getAll(),HttpStatus.OK);
     }
 
@@ -37,7 +36,7 @@ public class ProxyVipController {
     }
     @PostMapping("/add")
     public ResponseEntity<addVipResponse> addVIP(@RequestBody @Valid AddVipRequest vip){
-        proxyVipService.addVip(vip.toString());
+        proxyVipService.addVip(vip.newVip());
         addVipResponse response= new addVipResponse(true);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }

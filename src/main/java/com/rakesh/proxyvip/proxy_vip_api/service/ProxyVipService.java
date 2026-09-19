@@ -16,11 +16,10 @@ public class ProxyVipService {
     private final ConcurrentHashMap<String, PerSourceState> sourceStates = new ConcurrentHashMap<>();
     private final List<String> vipPool;
     // the global pool — populated at startup, grown by add()
-    List<String> initialVips= Arrays.asList
-            ("1.1.1.1","1.1.1.2","1.1.1.3","1.1.1.4","1.1.1.5","1.1.1.6");
+
     public ProxyVipService(List<String> initialVips) {
-        System.out.println("initializing initial vips");
-        this.vipPool = new CopyOnWriteArrayList<>(initialVips);
+        List<String> preConfiguredVips = List.of("1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6");
+        this.vipPool = new CopyOnWriteArrayList<>(preConfiguredVips);
     }
 
     public String allocate(String sourceIp, String destinationIp) {
