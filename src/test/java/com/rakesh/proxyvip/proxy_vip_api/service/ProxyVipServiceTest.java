@@ -3,6 +3,11 @@ package com.rakesh.proxyvip.proxy_vip_api.service;
 import com.rakesh.proxyvip.proxy_vip_api.exception.VipPoolExhaustedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class ProxyVipServiceTest {
@@ -88,7 +93,67 @@ class ProxyVipServiceTest {
         assertEquals("1.1.1.7", result);
     }
     @Test
-    void shouldNotAlwaysAssignVipsInSequentialOrder(){
+    void shouldNotAlwaysAssignVipsInSequentialOrder() {
+        // Arrange: one source, 6 destinations, matching the 6 pre-configured VIPs
+        String sourceA = "10.10.10.10";
+        List<String> allocatedVips = new ArrayList<>();
 
+        // Act: allocate for all 6 destinations, collecting results IN ORDER
+        for (int i = 0; i < 6; i++) {
+            String destination = "127.0.0." + i;
+            String vip = proxyVipService.allocate(sourceA, destination);
+            allocatedVips.add(vip);
+        }
+
+        // The pool's original, sequential insertion order
+        List<String> sequentialOrder = List.of(
+                "1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6"
+        );
+
+        // Assert: the randomly-allocated order should NOT match the original sequential order.
+        // NOTE: there is a theoretical 1-in-720 chance random selection reproduces this exact
+        // order by coincidence, which would cause a rare false failure. Documented as a known
+        // limitation of testing true randomness deterministically.
+        assertNotEquals(sequentialOrder, allocatedVips);
+    }
+
+
+    @Test
+    void shouldNotAssignDuplicateVipUnderConcurrentRequestsForSameSource() throws InterruptedException {
+        String sourceA = "10.10.10.10";
+        int numberOfThreads = 6;  // matches the 6 pre-configured VIPs
+
+        // Thread-safe collection to gather results from multiple threads safely
+        List<String> allocatedVips = new CopyOnWriteArrayList<>();
+
+        // Lets the main test thread wait until ALL worker threads finish
+        CountDownLatch latch = new CountDownLatch(numberOfThreads);
+
+        ExecutorService executor = Executors.newFixedThreadPool(numberOfThreads);
+
+        // Fire off 6 concurrent allocate() calls, same source, different destinations
+        for (int i = 0; i < numberOfThreads; i++) {
+            String destination = "127.0.0." + i;
+            executor.submit(() -> {
+                try {
+                    String vip = proxyVipService.allocate(sourceA, destination);
+                    allocatedVips.add(vip);
+                } finally {
+                    latch.countDown();  // signal this thread is done, whether it succeeded or threw
+                }
+            });
+        }
+
+        // Wait for all 6 threads to finish, with a safety timeout so the test can't hang forever
+        latch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Assert: 6 requests went in, 6 VIPs came out
+        assertEquals(numberOfThreads, allocatedVips.size());
+
+        // Assert: no duplicates — converting to a Set removes duplicates,
+        // so if the Set is smaller than the List, a duplicate existed
+        long distinctCount = allocatedVips.stream().distinct().count();
+        assertEquals(numberOfThreads, distinctCount);
     }
 }
