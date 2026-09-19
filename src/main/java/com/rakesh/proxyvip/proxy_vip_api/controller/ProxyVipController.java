@@ -25,8 +25,8 @@ public class ProxyVipController {
         return new ResponseEntity<>(proxyVipService.getAll(),HttpStatus.OK);
     }
     @GetMapping("/getVip/{sourceIP}/{destinationIP}")
-    public ResponseEntity<String> getAllVips(@PathVariable String sourceIP,@PathVariable String destinationIP){
-        return new ResponseEntity<>(proxyVipService.getBySourceAndDestination(sourceIP,destinationIP),HttpStatus.OK);
+    public ResponseEntity<String> getVip(@PathVariable String sourceIP,@PathVariable String destinationIP){
+        return new ResponseEntity<>(proxyVipService.get(sourceIP,destinationIP),HttpStatus.OK);
     }
 
 
@@ -41,7 +41,7 @@ public class ProxyVipController {
     @PostMapping("/add")
     public ResponseEntity<addVipResponse> addVIP(@RequestBody @Valid AddVipRequest vip){
         proxyVipService.addVip(vip.newVip());
-        addVipResponse response= new addVipResponse(true);
+        addVipResponse response = new addVipResponse(true);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 

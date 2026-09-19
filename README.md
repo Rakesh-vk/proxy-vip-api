@@ -69,7 +69,7 @@ Allocates (or returns the existing) VIP for a given source/destination pair.
 
 ### `POST /api/vip/add`
 
-Adds a new VIP to the global pool, immediately available to all source IPs for future allocations.
+Adds a new VIP to the global pool, immediately available to all source IPs for future allocations. Matches the spec's `void add(String VIP)` at the service layer (`ProxyVipService.addVip()` returns `void`); the controller layer additionally returns a small confirmation body, which is a REST-API convenience rather than a spec deviation.
 
 **Request:**
 ```json
@@ -85,9 +85,28 @@ Adds a new VIP to the global pool, immediately available to all source IPs for f
 }
 ```
 
-### `GET /api/vip`
+### `GET /api/vip/getVip/{sourceIP}/{destinationIP}`
 
-Returns the current global VIP pool (debugging/inspection endpoint).
+Returns the VIP already allocated for a given (source, destination) pair. This is a **pure, side-effect-free lookup** — unlike `/allocate`, it never creates a new allocation. Implemented by `ProxyVipService.get(String sourceIp, String destinationIp)`, matching the spec's required `get(String SourceIP, String DestinationIP)` method by name.
+
+**Response — 200 OK:**
+```json
+"1.1.1.1"
+```
+
+**Response — 404 Not Found** (no allocation exists for this pair, either because the source IP has never been seen, or this specific destination was never allocated for it):
+```json
+{
+  "status": 404,
+  "message": "VIP is not allocated"
+}
+```
+
+### `GET /api/vip/getAllVips`
+
+Returns the current global VIP pool (debugging/inspection endpoint, not part of the required spec).
+
+---
 
 ---
 
@@ -131,23 +150,35 @@ The global pool (`vipPool`) is read on every single allocation (scanning for unu
 
 Retrying the exact same `allocate()` call for an exhausted source IP will never succeed until `addVip()` grows the pool — this isn't a transient server-availability issue (ruling out 503) or an issue with the request itself being malformed (ruling out 400/422). It's a conflict between the request and the current state of the resource (this source IP has used every available VIP), which is precisely what 409 Conflict is for. This is a judgment call — reasonable engineers could argue for other status codes — but 409 was chosen specifically using this "would retrying help?" lens.
 
-### 8. DTOs as Java records
+### 8. `get()` reuses the same synchronization as `allocate()`, and a single 404 exception covers both "unknown source" and "unknown destination"
+
+`get()` reads the same shared, mutable `PerSourceState` object that `allocate()` writes to — so it wraps its read in `synchronized(state)` too, even though it performs no mutation itself. Without this, a concurrent `allocate()` call could leave `get()` observing a partially-updated state (e.g., `usedVips` updated but `destinationToVip` not yet), or, due to Java Memory Model visibility rules, `get()` could fail to see a completed write from another thread at all. Any reader of shared mutable state needs to synchronize on the same lock as the writers for the safety guarantee to hold — read-only access is not automatically safe just because it doesn't mutate anything.
+
+Separately, `get()` deliberately does **not** use `computeIfAbsent` to look up the source IP (unlike `allocate()`). Using `computeIfAbsent` here would silently create and store a new, empty `PerSourceState` for any source IP ever queried — including ones that will never call `allocate()` — permanently growing the map from read-only traffic alone. A plain `ConcurrentHashMap.get()` (returning `null` if absent) avoids this side effect entirely.
+
+Both "the source IP has never been seen at all" and "the source IP exists but this destination was never allocated" throw the same `VipNotAllocated` exception, mapped to **404 Not Found**. From the caller's perspective these are the same outcome — no VIP exists for this pair — so a single, consistent exception and status code was used rather than distinguishing internally-different-but-externally-identical cases.
+
+### 9. DTOs as Java records
 
 `AllocateRequest`, `AllocateResponse`, `AddVipRequest`, and `ErrorResponse` are all Java records rather than traditional classes. Records are immutable by default, require no boilerplate getters, and need no Lombok dependency — a natural fit for simple data carriers with no behavior.
 
-### 9. Package structure — no `repository` layer
+### 10. Package structure — no `repository` layer
 
 The project is organized into `controller`, `service`, `exception`, and `dto` packages. A `repository` package was deliberately **not** created: this service holds all state in memory (`ConcurrentHashMap`, `CopyOnWriteArrayList`) with no database or persistence layer, so a `repository` package would have nothing genuine to abstract — it would be an artificial layer added purely to match a conventional template, not because the problem calls for it.
 
-### 10. Hardcoded initial VIP pool
+### 11. Hardcoded initial VIP pool
 
 `ProxyVipService` uses a no-argument constructor that initializes the pool with the spec's fixed list internally, rather than requiring Spring to inject an externally-configured list. Given the assignment specifies a fixed, known set of pre-configured VIPs, this avoided the added complexity of a separate `@Configuration` class or `application.yml` binding for a genuinely static list. The trade-off is explicit: changing the initial pool later requires a code change and redeploy, not just a config edit — see Future Improvements.
+
+### 12. Logging
+
+Both `ProxyVipService` and `GlobalExceptionHandler` use SLF4J (via Lombok's `@Slf4j`) to log normal events (successful allocations, new-VIP additions, successful lookups) at `INFO` level, and exceptional events (pool exhaustion, failed lookups) at `WARN` level, satisfying the requirement that the service log both normal and exceptional events.
 
 ---
 
 ## Testing Approach
 
-The test suite (`ProxyVipServiceTest`) covers all six functional rules from the spec, plus concurrency safety:
+The test suite (`ProxyVipServiceTest`) covers all six functional rules from the spec, the `get()` lookup method, and concurrency safety:
 
 1. **Idempotency** — the same (source, destination) pair returns the same VIP on repeated calls
 2. **Per-source uniqueness** — the same source IP never receives the same VIP for two different destinations
@@ -155,11 +186,15 @@ The test suite (`ProxyVipServiceTest`) covers all six functional rules from the 
 4. **Random, non-sequential selection** — allocating across all 6 destinations for one source does not reproduce the pool's original insertion order
 5. **Exhaustion** — allocating beyond a source's available VIPs throws `VipPoolExhaustedException`
 6. **Dynamic pool growth** — a VIP added via `addVip()` becomes immediately allocatable, including recovering a previously-exhausted source
-7. **Concurrency** — multiple threads concurrently allocating for the *same* source IP (different destinations) never receive duplicate VIPs, verified using an `ExecutorService` + `CountDownLatch` to run requests genuinely in parallel and collect results into a `CopyOnWriteArrayList` for safe inspection
+7. **Lookup success** — `get()` returns the correct VIP for a pair that was already allocated
+8. **Lookup failure** — `get()` throws `VipNotAllocated` for a pair with no existing allocation
+9. **Allocation sanity check** — an allocated VIP always comes from the configured pool
+10. **Concurrency** — multiple threads concurrently allocating for the *same* source IP (different destinations) never receive duplicate VIPs, verified using an `ExecutorService` + `CountDownLatch` to run requests genuinely in parallel and collect results into a `CopyOnWriteArrayList` for safe inspection
 
 **Known limitations, stated honestly:**
 - The randomness test (#4) has a theoretical (astronomically small, 1-in-720) chance of a false failure if random selection happens to reproduce the exact sequential order by coincidence.
-- The concurrency test (#7) is probabilistic, not a mathematical proof — passing consistently across multiple runs increases confidence in the locking design, but does not exhaustively rule out every possible interleaving the way a pure logic/unit test can.
+- The concurrency test (#10) is probabilistic, not a mathematical proof — passing consistently across multiple runs increases confidence in the locking design, but does not exhaustively rule out every possible interleaving the way a pure logic/unit test can.
+- The current suite tests `ProxyVipService` directly; HTTP-layer tests (controller + `GlobalExceptionHandler` wiring, request validation) are not yet automated — see Future Improvements.
 
 ---
 

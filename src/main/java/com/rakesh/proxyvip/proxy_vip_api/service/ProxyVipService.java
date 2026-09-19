@@ -3,8 +3,6 @@ package com.rakesh.proxyvip.proxy_vip_api.service;
 import com.rakesh.proxyvip.proxy_vip_api.exception.VipNotAllocated;
 import com.rakesh.proxyvip.proxy_vip_api.exception.VipPoolExhaustedException;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,18 +66,18 @@ public class ProxyVipService {
         return candidates.get(randomIndex);
     }
 
-    public boolean addVip(String newVip) {
+    public void addVip(String newVip) {
         vipPool.add(newVip);   // immediately visible to all future allocate() calls
         log.info("VIP added to pool: vip={}, poolSize={}",
                 newVip, vipPool.size());
-        return true;
+
     }
 
     public List<String> getAll() {
         return vipPool;
     }
 
-        public String getBySourceAndDestination(String sourceIp, String destinationIp) {
+        public String get(String sourceIp, String destinationIp) {
             log.info("VIP lookup requested: sourceIP={}, destinationIP={}",
                     sourceIp, destinationIp);
 

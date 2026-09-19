@@ -5,6 +5,7 @@ import com.rakesh.proxyvip.proxy_vip_api.exception.VipPoolExhaustedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -152,7 +153,7 @@ class ProxyVipServiceTest {
                 );
 
         String retrievedVip =
-                proxyVipService.getBySourceAndDestination(
+                proxyVipService.get(
                         sourceIp,
                         destinationIp
                 );
@@ -165,7 +166,7 @@ class ProxyVipServiceTest {
 
         assertThrows(
                 VipNotAllocated.class,
-                () -> proxyVipService.getBySourceAndDestination(
+                () -> proxyVipService.get(
                         "10.10.10.10",
                         "127.0.0.1"
                 )
@@ -280,4 +281,23 @@ class ProxyVipServiceTest {
         );
     }
 
+    @Test
+    void shouldNotAlwaysAssignVipsInSequentialOrder() {
+        String sourceA = "10.10.10.10";
+        List<String> allocatedVips = new ArrayList<>();
+
+        for (int i = 0; i < 6; i++) {
+            String destination = "127.0.0." + i;
+            String vip = proxyVipService.allocate(sourceA, destination);
+            allocatedVips.add(vip);
+        }
+
+        List<String> sequentialOrder = List.of(
+                "1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6"
+        );
+
+        // NOTE: theoretical 1-in-720 chance of false failure if random selection
+        // happens to reproduce this exact order by coincidence.
+        assertNotEquals(sequentialOrder, allocatedVips);
+    }
 }
