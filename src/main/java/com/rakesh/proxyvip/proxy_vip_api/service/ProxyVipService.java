@@ -1,8 +1,11 @@
 package com.rakesh.proxyvip.proxy_vip_api.service;
 
+import com.rakesh.proxyvip.proxy_vip_api.entity.VipAllocationEntity;
 import com.rakesh.proxyvip.proxy_vip_api.exception.VipNotAllocated;
 import com.rakesh.proxyvip.proxy_vip_api.exception.VipPoolExhaustedException;
+import com.rakesh.proxyvip.proxy_vip_api.repository.VipAllocationRepository;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,14 +17,48 @@ import java.util.concurrent.ThreadLocalRandom;
 @Slf4j
 public class ProxyVipService {
 
+    private final VipAllocationRepository vipAllocationRepository;
+    private final VipPersistenceService vipPersistenceService;
+
     private final ConcurrentHashMap<String, PerSourceState> sourceStates = new ConcurrentHashMap<>();
     private final List<String> vipPool;
     // the global pool — populated at startup, grown by add()
 
-    public ProxyVipService() {
+    public ProxyVipService(VipAllocationRepository vipAllocationRepository, VipPersistenceService vipPersistenceService) {
+        this.vipAllocationRepository = vipAllocationRepository;
+        this.vipPersistenceService = vipPersistenceService;
         List<String> preConfiguredVips = List.of("1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6");
         this.vipPool = new CopyOnWriteArrayList<>(preConfiguredVips);
     }
+
+    @PostConstruct
+    public void loadAllocationsFromDatabase() {
+
+        List<VipAllocationEntity> allocations =
+                vipAllocationRepository.findAll();
+
+        for (VipAllocationEntity allocation : allocations) {
+
+            PerSourceState state =
+                    sourceStates.computeIfAbsent(
+                            allocation.getSourceIp(),
+                            key -> new PerSourceState()
+                    );
+
+            synchronized (state) {
+                state.assignVIP(
+                        allocation.getDestinationIp(),
+                        allocation.getVip()
+                );
+            }
+        }
+
+        log.info(
+                "Loaded {} VIP allocations from database into memory",
+                allocations.size()
+        );
+    }
+
 
     public String allocate(String sourceIp, String destinationIp) {
         log.info("VIP allocation requested: sourceIP={}, destinationIP={}",
@@ -35,6 +72,7 @@ public class ProxyVipService {
                                 "Existing VIP returned: sourceIP={}, destinationIP={}, vip={}",
                                 sourceIp, destinationIp, vip
                         );
+
                         return vip;
                     })
                     .orElseGet(() -> {
@@ -44,6 +82,7 @@ public class ProxyVipService {
                                 "New VIP allocated: sourceIP={}, destinationIP={}, vip={}",
                                 sourceIp, destinationIp, vip
                         );
+                        vipPersistenceService.saveAllocationAsync(sourceIp, destinationIp, vip);
                         return vip;
                     });
         }
@@ -109,5 +148,21 @@ public class ProxyVipService {
                         });
             }
         }
+    public List<VipAllocationEntity> getAllAllocations() {
 
+        List<VipAllocationEntity> allocations =
+                vipAllocationRepository.findAll();
+
+        log.info(
+                "Retrieved {} VIP allocations from database",
+                allocations.size()
+        );
+
+        return allocations;
+    }
+
+    public void removeRecords() {
+        sourceStates.clear();
+        vipAllocationRepository.deleteAll();
+    }
 }

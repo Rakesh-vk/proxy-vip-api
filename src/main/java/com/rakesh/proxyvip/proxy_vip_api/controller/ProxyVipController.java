@@ -4,6 +4,7 @@ import com.rakesh.proxyvip.proxy_vip_api.dto.AddVipRequest;
 import com.rakesh.proxyvip.proxy_vip_api.dto.AllocateRequest;
 import com.rakesh.proxyvip.proxy_vip_api.dto.AllocateResponse;
 import com.rakesh.proxyvip.proxy_vip_api.dto.addVipResponse;
+import com.rakesh.proxyvip.proxy_vip_api.entity.VipAllocationEntity;
 import com.rakesh.proxyvip.proxy_vip_api.service.ProxyVipService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,19 @@ public class ProxyVipController {
         proxyVipService.addVip(vip.newVip());
         addVipResponse response = new addVipResponse(true);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
+    }
+    @GetMapping("/allocations")
+    public ResponseEntity<List<VipAllocationEntity>> getAllAllocations() {
+
+        List<VipAllocationEntity> allocations =
+                proxyVipService.getAllAllocations();
+
+        return  ResponseEntity.ok(allocations);
+    }
+    @DeleteMapping("/removeAllVips")
+    public ResponseEntity<Void> DeleteAllMapping(){
+        proxyVipService.removeRecords();
+        return new ResponseEntity<>(HttpStatus.OK);
     }
 
 }
