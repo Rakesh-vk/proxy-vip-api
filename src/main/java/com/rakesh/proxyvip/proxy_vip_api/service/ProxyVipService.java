@@ -17,7 +17,7 @@ public class ProxyVipService {
     private final List<String> vipPool;
     // the global pool — populated at startup, grown by add()
 
-    public ProxyVipService(List<String> initialVips) {
+    public ProxyVipService() {
         List<String> preConfiguredVips = List.of("1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6");
         this.vipPool = new CopyOnWriteArrayList<>(preConfiguredVips);
     }
