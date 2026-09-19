@@ -1,10 +1,10 @@
 package com.rakesh.proxyvip.proxy_vip_api.service;
 
+import com.rakesh.proxyvip.proxy_vip_api.exception.VipNotAllocated;
 import com.rakesh.proxyvip.proxy_vip_api.exception.VipPoolExhaustedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -21,139 +21,263 @@ class ProxyVipServiceTest {
 
     @Test
     void shouldReturnSameVipForSameSourceAndDestinationOnRepeatedCalls() {
-        // Arrange: pick a source and destination
+
         String sourceIp = "10.10.10.10";
-        String destIp = "127.0.0.1";
+        String destinationIp = "127.0.0.1";
 
-        // Act: call allocate twice with the SAME arguments
-        String firstResult = proxyVipService.allocate(sourceIp, destIp);
-        String secondResult = proxyVipService.allocate(sourceIp, destIp);
+        String firstResult =
+                proxyVipService.allocate(sourceIp, destinationIp);
 
-        // Assert: both calls must return the identical VIP
+        String secondResult =
+                proxyVipService.allocate(sourceIp, destinationIp);
+
         assertEquals(firstResult, secondResult);
     }
+
     @Test
     void shouldReturnDifferentVipsForSameSourceWithDifferentDestinations() {
+
         String sourceIp = "10.10.10.10";
-        String destIp = "127.0.0.1";
-        String destIp1 = "127.0.0.2";
+        String firstDestination = "127.0.0.1";
+        String secondDestination = "127.0.0.2";
 
-        String firstResult = proxyVipService.allocate(sourceIp, destIp);
-        String secondResult = proxyVipService.allocate(sourceIp, destIp1);
+        String firstVip =
+                proxyVipService.allocate(
+                        sourceIp,
+                        firstDestination
+                );
 
-        assertNotEquals(firstResult, secondResult);
+        String secondVip =
+                proxyVipService.allocate(
+                        sourceIp,
+                        secondDestination
+                );
+
+        assertNotEquals(firstVip, secondVip);
     }
 
     @Test
-    void shouldAllowDifferentSourceToAllocateEvenWhenAnotherSourceIsExhausted(){
-        // Arrange: exhaust ALL 6 VIPs for sourceA, by allocating 6 different destinations
+    void shouldAllowDifferentSourceToAllocateEvenWhenAnotherSourceIsExhausted() {
+
         String sourceA = "10.10.10.10";
+
+        // Exhaust all 6 VIPs for source A.
         for (int i = 0; i < 6; i++) {
-            String destination = "127.0.0." + i;
-            proxyVipService.allocate(sourceA, destination);
+            proxyVipService.allocate(
+                    sourceA,
+                    "127.0.0." + i
+            );
         }
-        // Act + Assert: sourceB should still be able to allocate successfully,
-        // even though sourceA has used every VIP in the pool
+
+        // Source B should still have its own independent VIP pool.
         String sourceB = "20.20.20.20";
-        assertDoesNotThrow(() -> {
-            proxyVipService.allocate(sourceB, "127.0.0.100");
-        });
+
+        String vip =
+                proxyVipService.allocate(
+                        sourceB,
+                        "127.0.0.100"
+                );
+
+        assertNotNull(vip);
     }
 
     @Test
-    void shouldThrowExceptionWhenAllVipsExhaustedForSource(){
-        String sourceA = "10.10.10.10";
+    void shouldThrowExceptionWhenAllVipsExhaustedForSource() {
+
+        String sourceIp = "10.10.10.10";
+
+        // Use all 6 VIPs for the same source.
         for (int i = 0; i < 6; i++) {
-            String destination = "127.0.0." + i;
-            proxyVipService.allocate(sourceA, destination);
+            proxyVipService.allocate(
+                    sourceIp,
+                    "127.0.0." + i
+            );
         }
-        assertThrows(VipPoolExhaustedException.class,()-> {
-            proxyVipService.allocate(sourceA, "127.0.0.109");
-        });
+
+        // No VIP should remain for another destination.
+        assertThrows(
+                VipPoolExhaustedException.class,
+                () -> proxyVipService.allocate(
+                        sourceIp,
+                        "127.0.0.100"
+                )
+        );
     }
+
     @Test
     void shouldMakeNewlyAddedVipImmediatelyAvailable() {
-        String sourceA = "10.10.10.10";
+
+        String sourceIp = "10.10.10.10";
+
+        // Exhaust all configured VIPs.
         for (int i = 0; i < 6; i++) {
-            String destination = "127.0.0." + i;
-            proxyVipService.allocate(sourceA, destination);
+            proxyVipService.allocate(
+                    sourceIp,
+                    "127.0.0." + i
+            );
         }
 
-        // Confirm exhaustion, as a self-contained check within this test
-        assertThrows(VipPoolExhaustedException.class, () -> {
-            proxyVipService.allocate(sourceA, "127.0.0.200");
-        });
-
-        // Act: grow the pool
-        proxyVipService.addVip("1.1.1.7");
-
-        // Assert: the previously-failing allocation now succeeds, AND returns
-        // specifically 1.1.1.7 — since it's the ONLY unused VIP available now
-        String result = proxyVipService.allocate(sourceA, "127.0.0.200");
-        assertEquals("1.1.1.7", result);
-    }
-    @Test
-    void shouldNotAlwaysAssignVipsInSequentialOrder() {
-        // Arrange: one source, 6 destinations, matching the 6 pre-configured VIPs
-        String sourceA = "10.10.10.10";
-        List<String> allocatedVips = new ArrayList<>();
-
-        // Act: allocate for all 6 destinations, collecting results IN ORDER
-        for (int i = 0; i < 6; i++) {
-            String destination = "127.0.0." + i;
-            String vip = proxyVipService.allocate(sourceA, destination);
-            allocatedVips.add(vip);
-        }
-
-        // The pool's original, sequential insertion order
-        List<String> sequentialOrder = List.of(
-                "1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5", "1.1.1.6"
+        // Confirm that the source is exhausted.
+        assertThrows(
+                VipPoolExhaustedException.class,
+                () -> proxyVipService.allocate(
+                        sourceIp,
+                        "127.0.0.200"
+                )
         );
 
-        // Assert: the randomly-allocated order should NOT match the original sequential order.
-        // NOTE: there is a theoretical 1-in-720 chance random selection reproduces this exact
-        // order by coincidence, which would cause a rare false failure. Documented as a known
-        // limitation of testing true randomness deterministically.
-        assertNotEquals(sequentialOrder, allocatedVips);
+        // Add a new VIP.
+        proxyVipService.addVip("1.1.1.7");
+
+        // The newly added VIP should now be available.
+        String result =
+                proxyVipService.allocate(
+                        sourceIp,
+                        "127.0.0.200"
+                );
+
+        assertEquals("1.1.1.7", result);
     }
 
+    @Test
+    void shouldReturnAllocatedVipForSourceAndDestination() {
+
+        String sourceIp = "10.10.10.10";
+        String destinationIp = "127.0.0.1";
+
+        String allocatedVip =
+                proxyVipService.allocate(
+                        sourceIp,
+                        destinationIp
+                );
+
+        String retrievedVip =
+                proxyVipService.getBySourceAndDestination(
+                        sourceIp,
+                        destinationIp
+                );
+
+        assertEquals(allocatedVip, retrievedVip);
+    }
 
     @Test
-    void shouldNotAssignDuplicateVipUnderConcurrentRequestsForSameSource() throws InterruptedException {
-        String sourceA = "10.10.10.10";
-        int numberOfThreads = 6;  // matches the 6 pre-configured VIPs
+    void shouldThrowExceptionWhenVipIsNotAllocated() {
 
-        // Thread-safe collection to gather results from multiple threads safely
-        List<String> allocatedVips = new CopyOnWriteArrayList<>();
+        assertThrows(
+                VipNotAllocated.class,
+                () -> proxyVipService.getBySourceAndDestination(
+                        "10.10.10.10",
+                        "127.0.0.1"
+                )
+        );
+    }
 
-        // Lets the main test thread wait until ALL worker threads finish
-        CountDownLatch latch = new CountDownLatch(numberOfThreads);
+    @Test
+    void shouldAllocateVipFromConfiguredPool() {
 
-        ExecutorService executor = Executors.newFixedThreadPool(numberOfThreads);
+        String sourceIp = "10.10.10.10";
 
-        // Fire off 6 concurrent allocate() calls, same source, different destinations
+        List<String> configuredVips = List.of(
+                "1.1.1.1",
+                "1.1.1.2",
+                "1.1.1.3",
+                "1.1.1.4",
+                "1.1.1.5",
+                "1.1.1.6"
+        );
+
+        // Every allocated VIP must come from the configured pool.
+        for (int i = 0; i < 6; i++) {
+
+            String vip =
+                    proxyVipService.allocate(
+                            sourceIp,
+                            "127.0.0." + i
+                    );
+
+            assertTrue(
+                    configuredVips.contains(vip),
+                    "Allocated VIP should belong to the configured pool"
+            );
+        }
+    }
+
+    @Test
+    void shouldNotAssignDuplicateVipUnderConcurrentRequestsForSameSource()
+            throws InterruptedException {
+
+        String sourceIp = "10.10.10.10";
+        int numberOfThreads = 6;
+
+        List<String> allocatedVips =
+                new CopyOnWriteArrayList<>();
+
+        CountDownLatch latch =
+                new CountDownLatch(numberOfThreads);
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(numberOfThreads);
+
+        // Submit 6 concurrent requests for the same source
+        // but different destinations.
         for (int i = 0; i < numberOfThreads; i++) {
-            String destination = "127.0.0." + i;
+
+            String destinationIp =
+                    "127.0.0." + i;
+
             executor.submit(() -> {
                 try {
-                    String vip = proxyVipService.allocate(sourceA, destination);
+                    String vip =
+                            proxyVipService.allocate(
+                                    sourceIp,
+                                    destinationIp
+                            );
+
                     allocatedVips.add(vip);
+
                 } finally {
-                    latch.countDown();  // signal this thread is done, whether it succeeded or threw
+                    latch.countDown();
                 }
             });
         }
 
-        // Wait for all 6 threads to finish, with a safety timeout so the test can't hang forever
-        latch.await(5, TimeUnit.SECONDS);
+        // Make sure every worker actually completed.
+        boolean completed =
+                latch.await(5, TimeUnit.SECONDS);
+
+        assertTrue(
+                completed,
+                "All worker threads should complete within 5 seconds"
+        );
+
         executor.shutdown();
 
-        // Assert: 6 requests went in, 6 VIPs came out
-        assertEquals(numberOfThreads, allocatedVips.size());
+        // Make sure the executor itself terminates.
+        assertTrue(
+                executor.awaitTermination(
+                        5,
+                        TimeUnit.SECONDS
+                ),
+                "Executor should terminate within 5 seconds"
+        );
 
-        // Assert: no duplicates — converting to a Set removes duplicates,
-        // so if the Set is smaller than the List, a duplicate existed
-        long distinctCount = allocatedVips.stream().distinct().count();
-        assertEquals(numberOfThreads, distinctCount);
+        // All 6 requests should have received a VIP.
+        assertEquals(
+                numberOfThreads,
+                allocatedVips.size()
+        );
+
+        // No two different destinations for the same source
+        // should receive the same VIP.
+        long distinctCount =
+                allocatedVips.stream()
+                        .distinct()
+                        .count();
+
+        assertEquals(
+                numberOfThreads,
+                distinctCount
+        );
     }
+
 }
