@@ -28,5 +28,8 @@ public class VipAllocationEntity {
 
 
     public VipAllocationEntity(String sourceIp, String destinationIp, String vip) {
+        this.sourceIp = sourceIp;
+        this.destinationIp = destinationIp;
+        this.vip = vip;
     }
 }
